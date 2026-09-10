@@ -1,78 +1,69 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Codebase Digital Twin</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <header class="topbar">
-      <h1>Codebase Digital Twin</h1>
-      <span class="repo" id="repo-name">loading…</span>
-      <span class="upload-status" id="upload-status"></span>
-      <div class="topbar-actions">
-        <input type="file" id="zip-input" accept=".zip,application/zip" hidden />
-        <button type="button" class="button" id="upload-button">Upload .zip</button>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Codebase Digital Twin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <h1>Codelens</h1>
+    <span class="repo" id="repo-name">loading…</span>
+    <span class="upload-status" id="upload-status"></span>
+    <div class="topbar-actions">
+      <input type="file" id="zip-input" accept=".zip,application/zip" hidden />
+      <button title="Upload a Spring Boot Project" type="button" class="button" id="upload-button">Upload .zip</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <nav class="panel panel-left" id="left-panel" aria-label="Entry points">
+      <div class="panel-head">
+        <h2>Endpoints</h2>
+        <span class="count" id="endpoint-count"></span>
+        <button type="button" class="icon-button collapse-toggle" id="left-toggle" aria-controls="left-panel"
+          aria-expanded="true" title="Hide the endpoint list">
+          <span aria-hidden="true" id="left-toggle-arrow">‹</span>
+          <span class="visually-hidden">Hide the endpoint list</span>
+        </button>
       </div>
-    </header>
+      <ul class="endpoints" id="endpoint-list">
+        <li class="hint">Loading endpoints…</li>
+      </ul>
+    </nav>
 
-    <main class="layout">
-      <nav class="panel panel-left" id="left-panel" aria-label="Entry points">
-        <div class="panel-head">
-          <h2>Endpoints</h2>
-          <span class="count" id="endpoint-count"></span>
-          <button
-            type="button"
-            class="icon-button collapse-toggle"
-            id="left-toggle"
-            aria-controls="left-panel"
-            aria-expanded="true"
-            title="Hide the endpoint list"
-          >
-            <span aria-hidden="true" id="left-toggle-arrow">‹</span>
-            <span class="visually-hidden">Hide the endpoint list</span>
-          </button>
+    <section class="panel panel-center" aria-label="Execution trace" aria-live="polite">
+      <div id="trace-panel">
+        <p class="hint">Select an endpoint to trace what it runs.</p>
+      </div>
+    </section>
+
+    <aside class="panel panel-chat" id="chat-panel" aria-label="Ask about this code" hidden>
+      <div class="chat-headbar">
+        <div class="chat-heading">
+          <p class="chat-title" id="chat-title"></p>
+          <p class="chat-source" id="chat-source"></p>
         </div>
-        <ul class="endpoints" id="endpoint-list">
-          <li class="hint">Loading endpoints…</li>
-        </ul>
-      </nav>
+        <button type="button" class="icon-button" id="chat-close" title="Close">
+          <span aria-hidden="true">×</span>
+          <span class="visually-hidden">Close the question panel</span>
+        </button>
+      </div>
 
-      <section class="panel panel-center" aria-label="Execution trace" aria-live="polite">
-        <div id="trace-panel">
-          <p class="hint">Select an endpoint to trace what it runs.</p>
-        </div>
-      </section>
+      <div class="chat-turns" id="chat-turns"></div>
 
-      <aside class="panel panel-chat" id="chat-panel" aria-label="Ask about this code" hidden>
-        <div class="chat-headbar">
-          <div class="chat-heading">
-            <p class="chat-title" id="chat-title"></p>
-            <p class="chat-source" id="chat-source"></p>
-          </div>
-          <button type="button" class="icon-button" id="chat-close" title="Close">
-            <span aria-hidden="true">×</span>
-            <span class="visually-hidden">Close the question panel</span>
-          </button>
-        </div>
+      <form class="chat-form" id="chat-form">
+        <input type="text" class="chat-input" id="chat-input" placeholder="What does this do?"
+          aria-label="Question about this method" autocomplete="off" />
+        <button type="submit" class="button" id="chat-submit">Ask</button>
+      </form>
+    </aside>
+  </main>
 
-        <div class="chat-turns" id="chat-turns"></div>
+  <script type="module" src="app.js"></script>
+</body>
 
-        <form class="chat-form" id="chat-form">
-          <input
-            type="text"
-            class="chat-input"
-            id="chat-input"
-            placeholder="What does this do?"
-            aria-label="Question about this method"
-            autocomplete="off"
-          />
-          <button type="submit" class="button" id="chat-submit">Ask</button>
-        </form>
-      </aside>
-    </main>
-
-    <script type="module" src="app.js"></script>
-  </body>
 </html>
