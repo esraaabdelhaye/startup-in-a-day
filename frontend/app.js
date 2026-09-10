@@ -215,6 +215,7 @@ function renderEndpointItem(entry) {
   const method = document.createElement("span");
   method.className = "method";
   method.textContent = entry.method;
+  method.dataset.verb = entry.method.toLowerCase();
 
   const path = document.createElement("span");
   path.className = "endpoint-path";
