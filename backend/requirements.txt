@@ -1,2 +1,5 @@
 anthropic>=1.4.0
+fastapi>=0.141.0
 javalang==0.13.0
+python-multipart>=0.0.20
+uvicorn[standard]>=0.52.0

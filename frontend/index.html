@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codebase Digital Twin</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Codebase Digital Twin</h1>
+      <span class="repo" id="repo-name">loading…</span>
+      <span class="upload-status" id="upload-status"></span>
+      <div class="topbar-actions">
+        <input type="file" id="zip-input" accept=".zip,application/zip" hidden />
+        <button type="button" class="button" id="upload-button">Upload .zip</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <nav class="panel panel-left" aria-label="Entry points">
+        <div class="panel-head">
+          <h2>Endpoints</h2>
+          <span class="count" id="endpoint-count"></span>
+        </div>
+        <ul class="endpoints" id="endpoint-list">
+          <li class="hint">Loading endpoints…</li>
+        </ul>
+      </nav>
+
+      <section class="panel panel-right" aria-label="Execution trace" aria-live="polite">
+        <div id="right-panel">
+          <p class="hint">Select an endpoint to trace what it runs.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="statusbar" id="statusbar" hidden>
+      <span class="status-label">Selected</span>
+      <span class="status-value" id="selection"></span>
+      <span class="status-hint">Ask a question in the panel below the diagram.</span>
+    </footer>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
