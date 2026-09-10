@@ -7,9 +7,51 @@ database call.
 ## Layout
 
 ```
-backend/    Python analyzer (parser/, tests/, .venv/)
-frontend/   UI
+backend/    Python analyzer, agent, and API server (parser/, agent/, api/, tests/, .venv/)
+frontend/   UI (static, served by the backend - no separate build/run step)
 ```
+
+## Quickstart (run the whole app)
+
+Requires Python 3.11+ and an [Anthropic API key](https://console.anthropic.com/settings/keys).
+
+```bash
+git clone <this-repo-url>
+cd startup-in-a-day
+
+# 1. API key - copy the template and fill in your key
+cp .env.example .env
+#   edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+
+# 2. Backend setup
+cd backend
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt -r requirements-dev.txt   # Windows
+# .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt    # macOS/Linux
+
+# 3. Run the server (serves both the API and the frontend)
+.venv/Scripts/python -m api.server        # Windows
+# .venv/bin/python -m api.server          # macOS/Linux
+```
+
+Then open **http://127.0.0.1:8000**. It starts pre-loaded with a bundled demo
+Spring Boot project (`backend/tests/fixtures/demo-shop`) so there's something to
+click immediately - upload your own `.zip` of a Spring Boot project from the UI
+to analyze it instead.
+
+To point the server at a specific project on startup instead of the bundled demo:
+
+```bash
+.venv/Scripts/python -m api.server /path/to/your/spring-project
+```
+
+The frontend loads Mermaid, IBM Plex fonts, and a couple of small JS libraries
+from a CDN at runtime, so an internet connection is required even though there's
+no separate frontend build step.
+
+No `.env` and nothing loaded? The server logs `warning: ANTHROPIC_API_KEY is not
+set` on startup and the endpoint list will still load, but generating a trace or
+asking a question will fail until the key is set.
 
 ## `backend/parser/spring_analyze.py`
 
