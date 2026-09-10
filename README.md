@@ -70,6 +70,32 @@ File paths, line numbers, warnings, and unreachable nodes are deliberately
 excluded. The click-to-chat feature looks locations up in the full manifest by
 node id, so this skeleton stays purely about flow.
 
+## `backend/agent/trace_synthesizer.py`
+
+Sends a skeleton to the Claude API and gets back the two things the frontend
+renders: a short plain-English narrative, and the same chain as Mermaid.js
+`sequenceDiagram` source.
+
+```bash
+cd backend
+export ANTHROPIC_API_KEY=...        # never hardcoded, never logged
+python -m agent.trace_synthesizer <manifest.json> <entry_point_id>
+```
+
+```python
+from agent.trace_synthesizer import synthesize_trace
+
+result = synthesize_trace(skeleton)   # {"narrative": ..., "mermaid": ...}
+```
+
+One API call per click (model `claude-sonnet-4-6`, ~450 input / ~300 output
+tokens for a typical trace). The response is parsed defensively: markdown
+fences are stripped before `json.loads`, and a parse failure earns exactly one
+repair attempt before erroring. Mermaid source is validated to be non-empty and
+to start with `sequenceDiagram`, so broken syntax fails here rather than in the
+browser. `synthesize()` returns the same result plus token counts for budget
+tracking; the CLI prints them to stderr.
+
 ### How it works
 
 **Pass 1 - component registry.** Indexes every type: its Spring stereotypes,

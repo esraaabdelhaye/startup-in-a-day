@@ -19,3 +19,7 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Generated analyzer output
+/backend/out/
+/backend/*-manifest.json

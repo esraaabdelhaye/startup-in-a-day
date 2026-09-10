@@ -1,1 +1,2 @@
+anthropic>=1.4.0
 javalang==0.13.0
