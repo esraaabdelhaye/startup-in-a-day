@@ -84,7 +84,7 @@ mermaid.initialize({
   // "loose" keeps the rendered SVG inspectable for click binding.
   securityLevel: "loose",
   fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
-  sequence: { useMaxWidth: false, actorMargin: 64, mirrorActors: false },
+  sequence: { useMaxWidth: false, actorMargin: 64, mirrorActors: true },
   themeVariables: {
     fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
     fontSize: "13px",

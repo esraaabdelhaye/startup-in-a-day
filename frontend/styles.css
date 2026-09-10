@@ -462,6 +462,7 @@ body.left-collapsed .collapse-toggle {
   padding: 0;
   border: 1px solid var(--rule);
   border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
   background-color: var(--canvas);
   background-image: radial-gradient(circle, #d3d6dc 1px, transparent 1px);
   background-size: 18px 18px;
