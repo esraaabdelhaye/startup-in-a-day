@@ -1,13 +1,58 @@
 /**
- * Codebase Digital Twin - two-panel UI.
+ * Codebase Digital Twin - three-panel UI.
  *
- * Left panel lists the endpoints the parser found; clicking one asks the
- * backend for a narrative and a Mermaid sequence diagram and renders both.
- * Every node in the rendered diagram is clickable, and the selection is
- * resolved back to a trace node so the chat feature can pick it up.
+ * Left panel lists the endpoints the parser found and collapses to a rail.
+ * The centre shows the narrative and a Mermaid sequence diagram. Clicking a
+ * node in that diagram opens the right-hand panel, where the user can ask
+ * questions about that method's actual source.
  */
 
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+import markdownit from "https://cdn.jsdelivr.net/npm/markdown-it@14/+esm";
+import hljs from "https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core/+esm";
+import javaGrammar from "https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/java/+esm";
+
+hljs.registerLanguage("java", javaGrammar);
+
+/**
+ * Renderer for chat answers.
+ *
+ * markdown-it rather than marked because `html: false` is its default: an
+ * answer is derived from source in an uploaded archive, so a Java comment
+ * containing markup is untrusted input. Raw HTML is escaped, which removes
+ * the need for a separate sanitiser.
+ */
+const markdown = markdownit({
+  html: false,
+  linkify: false,
+  breaks: false,
+  highlight(code, language) {
+    if (language && hljs.getLanguage(language)) {
+      try {
+        return hljs.highlight(code, { language, ignoreIllegals: true }).value;
+      } catch {
+        // Fall through to markdown-it's own escaping.
+      }
+    }
+    return "";
+  },
+});
+
+/**
+ * Emit fenced blocks as `<pre data-lang="java"><code class="hljs">`.
+ *
+ * The language lands on the `pre` so CSS can show it as a corner tag; the
+ * default renderer only puts it on the `code` element, where `attr()` cannot
+ * reach it from the block's own pseudo-element.
+ */
+markdown.renderer.rules.fence = (tokens, index, options) => {
+  const token = tokens[index];
+  const language = (token.info || "").trim().split(/\s+/)[0].toLowerCase();
+  const body =
+    options.highlight?.(token.content, language) || markdown.utils.escapeHtml(token.content);
+  const tag = language ? ` data-lang="${markdown.utils.escapeHtml(language)}"` : "";
+  return `<pre${tag}><code class="hljs">${body}</code></pre>\n`;
+};
 
 mermaid.initialize({
   startOnLoad: false,
@@ -22,19 +67,33 @@ const elements = {
   repoName: document.getElementById("repo-name"),
   endpointList: document.getElementById("endpoint-list"),
   endpointCount: document.getElementById("endpoint-count"),
-  rightPanel: document.getElementById("right-panel"),
-  statusbar: document.getElementById("statusbar"),
-  selection: document.getElementById("selection"),
+  tracePanel: document.getElementById("trace-panel"),
   uploadButton: document.getElementById("upload-button"),
   uploadStatus: document.getElementById("upload-status"),
   zipInput: document.getElementById("zip-input"),
+  leftToggle: document.getElementById("left-toggle"),
+  leftToggleArrow: document.getElementById("left-toggle-arrow"),
+  chatPanel: document.getElementById("chat-panel"),
+  chatTitle: document.getElementById("chat-title"),
+  chatSource: document.getElementById("chat-source"),
+  chatTurns: document.getElementById("chat-turns"),
+  chatForm: document.getElementById("chat-form"),
+  chatInput: document.getElementById("chat-input"),
+  chatSubmit: document.getElementById("chat-submit"),
+  chatClose: document.getElementById("chat-close"),
 };
 
-/** Id of the endpoint currently being shown, so stale responses can be dropped. */
+/** Id of the endpoint being shown, so stale responses can be dropped. */
 let activeEntryPointId = null;
 
-/** The most recent diagram selection; the chat feature will read this. */
+/** The most recent diagram selection. */
 let selectedNode = null;
+
+/** Manifest node the question panel is currently pointed at. */
+let chatNodeId = null;
+
+/** Conversation for that node, reset whenever the selection changes. */
+let chatHistory = [];
 
 // --------------------------------------------------------------------------
 // Data
@@ -60,73 +119,6 @@ async function fetchJson(url, options) {
     throw new Error(payload?.detail ?? `Request failed with status ${response.status}.`);
   }
   return payload;
-}
-
-// --------------------------------------------------------------------------
-// Upload
-// --------------------------------------------------------------------------
-
-/** Send a zip to the backend, then re-render the endpoint list from it. */
-async function uploadArchive(file) {
-  if (!file) return;
-  if (!file.name.toLowerCase().endsWith(".zip")) {
-    setUploadStatus("Please choose a .zip archive.", true);
-    return;
-  }
-
-  elements.uploadButton.disabled = true;
-  setUploadStatus(`Analyzing ${file.name}…`);
-  elements.endpointList.replaceChildren(hint("Analyzing uploaded project…"));
-  elements.rightPanel.replaceChildren(hint("Select an endpoint to trace what it runs."));
-  setSelection(null);
-  activeEntryPointId = null;
-
-  const body = new FormData();
-  body.append("file", file);
-
-  try {
-    const data = await fetchJson("/api/upload", { method: "POST", body });
-    renderEndpoints(data);
-    setUploadStatus(`${data.java_files} Java files analyzed`);
-  } catch (error) {
-    setUploadStatus(error.message, true);
-    elements.endpointList.replaceChildren(hint("Upload failed."));
-    showError("Could not analyze that archive", error.message);
-  } finally {
-    elements.uploadButton.disabled = false;
-    elements.zipInput.value = "";
-  }
-}
-
-function setUploadStatus(message, failed = false) {
-  elements.uploadStatus.textContent = message;
-  elements.uploadStatus.classList.toggle("failed", failed);
-}
-
-function wireUpload() {
-  elements.uploadButton.addEventListener("click", () => elements.zipInput.click());
-  elements.zipInput.addEventListener("change", (event) =>
-    uploadArchive(event.target.files?.[0])
-  );
-
-  // Dropping a zip anywhere on the window is quicker than the file picker.
-  let dragDepth = 0;
-  window.addEventListener("dragenter", (event) => {
-    event.preventDefault();
-    dragDepth += 1;
-    document.body.classList.add("dragging");
-  });
-  window.addEventListener("dragover", (event) => event.preventDefault());
-  window.addEventListener("dragleave", () => {
-    dragDepth = Math.max(0, dragDepth - 1);
-    if (dragDepth === 0) document.body.classList.remove("dragging");
-  });
-  window.addEventListener("drop", (event) => {
-    event.preventDefault();
-    dragDepth = 0;
-    document.body.classList.remove("dragging");
-    uploadArchive(event.dataTransfer?.files?.[0]);
-  });
 }
 
 // --------------------------------------------------------------------------
@@ -202,8 +194,87 @@ function markSelected(button) {
   button.classList.add("selected");
 }
 
+/** Collapse the endpoint list to a rail, or restore it. */
+function setLeftCollapsed(collapsed) {
+  document.body.classList.toggle("left-collapsed", collapsed);
+  elements.leftToggle.setAttribute("aria-expanded", String(!collapsed));
+  // The arrow points the way the panel will move.
+  elements.leftToggleArrow.textContent = collapsed ? "›" : "‹";
+  const label = collapsed ? "Show the endpoint list" : "Hide the endpoint list";
+  elements.leftToggle.title = label;
+  elements.leftToggle.querySelector(".visually-hidden").textContent = label;
+}
+
 // --------------------------------------------------------------------------
-// Right panel
+// Upload
+// --------------------------------------------------------------------------
+
+/** Send a zip to the backend, then re-render the endpoint list from it. */
+async function uploadArchive(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith(".zip")) {
+    setUploadStatus("Please choose a .zip archive.", true);
+    return;
+  }
+
+  elements.uploadButton.disabled = true;
+  setUploadStatus(`Analyzing ${file.name}…`);
+  elements.endpointList.replaceChildren(hint("Analyzing uploaded project…"));
+  elements.tracePanel.replaceChildren(hint("Select an endpoint to trace what it runs."));
+  setSelection(null);
+  activeEntryPointId = null;
+  setLeftCollapsed(false);
+
+  const body = new FormData();
+  body.append("file", file);
+
+  try {
+    const data = await fetchJson("/api/upload", { method: "POST", body });
+    renderEndpoints(data);
+    setUploadStatus(`${data.java_files} Java files analyzed`);
+  } catch (error) {
+    setUploadStatus(error.message, true);
+    elements.endpointList.replaceChildren(hint("Upload failed."));
+    showError("Could not analyze that archive", error.message);
+  } finally {
+    elements.uploadButton.disabled = false;
+    elements.zipInput.value = "";
+  }
+}
+
+function setUploadStatus(message, failed = false) {
+  elements.uploadStatus.textContent = message;
+  elements.uploadStatus.classList.toggle("failed", failed);
+}
+
+function wireUpload() {
+  elements.uploadButton.addEventListener("click", () => elements.zipInput.click());
+  elements.zipInput.addEventListener("change", (event) =>
+    uploadArchive(event.target.files?.[0])
+  );
+
+  // Dropping a zip anywhere on the window is quicker than the file picker.
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    dragDepth += 1;
+    document.body.classList.add("dragging");
+  });
+  window.addEventListener("dragover", (event) => event.preventDefault());
+  window.addEventListener("dragleave", () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) document.body.classList.remove("dragging");
+  });
+  window.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove("dragging");
+    uploadArchive(event.dataTransfer?.files?.[0]);
+  });
+}
+
+// --------------------------------------------------------------------------
+// Centre panel
 // --------------------------------------------------------------------------
 
 async function selectEndpoint(entry, button) {
@@ -239,7 +310,7 @@ function showLoading(label) {
   loading.append(spinner(), document.createTextNode("Tracing execution with Claude…"));
 
   wrap.append(title, loading);
-  elements.rightPanel.replaceChildren(wrap);
+  elements.tracePanel.replaceChildren(wrap);
 }
 
 function showError(heading, message) {
@@ -253,13 +324,11 @@ function showError(heading, message) {
   detail.textContent = message;
 
   box.append(title, detail);
-  elements.rightPanel.replaceChildren(box);
+  elements.tracePanel.replaceChildren(box);
 }
 
 async function showTrace(trace) {
   const wrap = document.createElement("div");
-  // Anchor the chat panel appends to when a diagram node is clicked.
-  wrap.id = "trace-body";
 
   const title = document.createElement("h2");
   title.className = "trace-title";
@@ -273,7 +342,7 @@ async function showTrace(trace) {
   diagram.className = "diagram";
 
   wrap.append(title, narrative, diagram);
-  elements.rightPanel.replaceChildren(wrap);
+  elements.tracePanel.replaceChildren(wrap);
 
   try {
     const { svg, bindFunctions } = await mermaid.render(
@@ -343,7 +412,7 @@ function matchTraceNode(traceNodes, hit) {
 }
 
 /**
- * Record the current diagram selection and open the chat panel for it.
+ * Record the current diagram selection and point the question panel at it.
  *
  * The value is also kept on `window.digitalTwin` and announced as a DOM event,
  * so other features can observe selections without reaching into this module.
@@ -353,104 +422,56 @@ function setSelection(hit) {
   window.digitalTwin.selection = hit;
 
   if (!hit) {
-    elements.statusbar.hidden = true;
-    elements.selection.textContent = "";
     closeChat();
     return;
   }
-
-  elements.statusbar.hidden = false;
-  elements.selection.textContent = hit.node
-    ? `${hit.node.id} · ${hit.node.class ?? "—"} · ${hit.node.signature}`
-    : `${hit.label} (${hit.kind})`;
 
   openChat(hit);
   window.dispatchEvent(new CustomEvent("digitaltwin:select", { detail: hit }));
 }
 
 // --------------------------------------------------------------------------
-// Chat about a node
+// Question panel
 // --------------------------------------------------------------------------
 
-/** Conversation for the node currently open, reset whenever it changes. */
-let chatHistory = [];
-
 function closeChat() {
+  chatNodeId = null;
   chatHistory = [];
-  document.getElementById("chat")?.remove();
+  document.body.classList.remove("chat-open");
+  elements.chatPanel.hidden = true;
+  elements.chatTurns.replaceChildren();
 }
 
 /**
- * Show the question box for a clicked node.
+ * Point the right-hand panel at a clicked node.
  *
  * A participant on its own is a class, not a method, so there is no snippet
- * to ask about; the panel says so rather than offering an input that would
- * always fail.
+ * to ask about; the panel says so instead of offering an input that could
+ * only fail.
  */
 function openChat(hit) {
-  closeChat();
-  const container = document.getElementById("trace-body");
-  if (!container) return;
+  chatNodeId = hit.node?.id ?? null;
+  chatHistory = [];
 
-  const panel = document.createElement("section");
-  panel.className = "chat";
-  panel.id = "chat";
+  elements.chatTurns.replaceChildren();
+  elements.chatPanel.hidden = false;
+  document.body.classList.add("chat-open");
 
-  const heading = document.createElement("p");
-  heading.className = "chat-head";
-  heading.textContent = `Ask about ${hit.node?.signature ?? hit.label}`;
-  panel.append(heading);
+  elements.chatTitle.textContent = hit.node?.signature ?? hit.label;
 
-  const source = document.createElement("p");
-  source.className = "chat-source";
-  panel.append(source);
+  const askable = Boolean(chatNodeId);
+  elements.chatSource.textContent = askable
+    ? `${hit.node.id} · ${hit.node.class ?? "—"}`
+    : `No source recorded for "${hit.label}" — click a call arrow instead.`;
 
-  if (!hit.node) {
-    source.textContent = `No source is recorded for "${hit.label}" — click a call arrow or a box that maps to a method.`;
-    container.append(panel);
-    return;
-  }
-
-  source.textContent = `${hit.node.id} · ${hit.node.class ?? "—"}`;
-
-  const turns = document.createElement("div");
-  turns.className = "chat-turns";
-
-  const form = document.createElement("form");
-  form.className = "chat-form";
-
-  const input = document.createElement("input");
-  input.className = "chat-input";
-  input.type = "text";
-  input.placeholder = "What does this do? Why is it written this way?";
-  input.setAttribute("aria-label", "Question about this method");
-
-  const submit = document.createElement("button");
-  submit.type = "submit";
-  submit.className = "button";
-  submit.textContent = "Ask";
-
-  form.append(input, submit);
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    askQuestion(hit.node.id, input, submit, turns);
-  });
-
-  panel.append(turns, form);
-  container.append(panel);
-  input.focus();
+  elements.chatForm.hidden = !askable;
+  if (askable) elements.chatInput.focus();
 }
 
 /** Send one question and append the answer, keeping history for follow-ups. */
-async function askQuestion(functionId, input, submit, turns) {
-  const question = input.value.trim();
-  if (!question) return;
-
-  input.value = "";
-  input.disabled = true;
-  submit.disabled = true;
-
+async function askQuestion(question) {
   const turn = document.createElement("div");
+
   const asked = document.createElement("p");
   asked.className = "chat-turn-question";
   asked.textContent = question;
@@ -460,37 +481,77 @@ async function askQuestion(functionId, input, submit, turns) {
   pending.append(spinner(), document.createTextNode("Reading the source…"));
 
   turn.append(asked, pending);
-  turns.append(turn);
+  elements.chatTurns.append(turn);
+  elements.chatTurns.scrollTop = elements.chatTurns.scrollHeight;
+
+  const askedAbout = chatNodeId;
 
   try {
     const data = await fetchJson("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        function_id: functionId,
+        function_id: askedAbout,
         question,
         history: chatHistory,
       }),
     });
     pending.replaceWith(answerParagraph(data.answer));
-    chatHistory.push(
-      { role: "user", content: question },
-      { role: "assistant", content: data.answer }
-    );
+    // Only keep history if the panel is still pointed at the same node.
+    if (chatNodeId === askedAbout) {
+      chatHistory.push(
+        { role: "user", content: question },
+        { role: "assistant", content: data.answer }
+      );
+    }
   } catch (error) {
     pending.replaceWith(answerParagraph(error.message, true));
   } finally {
-    input.disabled = false;
-    submit.disabled = false;
-    input.focus();
+    elements.chatTurns.scrollTop = elements.chatTurns.scrollHeight;
   }
 }
 
+/**
+ * Render one answer.
+ *
+ * Errors stay as plain text - they are our own messages, not model output.
+ * Answers are markdown, so they need a block container: `<p>` cannot legally
+ * contain the `<pre>` and `<ul>` elements the renderer produces, and browsers
+ * would silently restructure the DOM around them.
+ */
 function answerParagraph(text, failed = false) {
-  const paragraph = document.createElement("p");
-  paragraph.className = failed ? "chat-turn-answer failed" : "chat-turn-answer";
-  paragraph.textContent = text;
-  return paragraph;
+  if (failed) {
+    const paragraph = document.createElement("p");
+    paragraph.className = "chat-turn-answer failed";
+    paragraph.textContent = text;
+    return paragraph;
+  }
+
+  const block = document.createElement("div");
+  block.className = "chat-turn-answer";
+  block.innerHTML = markdown.render(text);
+  return block;
+}
+
+function wireChat() {
+  elements.chatClose.addEventListener("click", closeChat);
+
+  elements.chatForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const question = elements.chatInput.value.trim();
+    if (!question || !chatNodeId) return;
+
+    elements.chatInput.value = "";
+    elements.chatInput.disabled = true;
+    elements.chatSubmit.disabled = true;
+    try {
+      await askQuestion(question);
+    } finally {
+      elements.chatInput.disabled = false;
+      elements.chatSubmit.disabled = false;
+      elements.chatInput.focus();
+    }
+  });
 }
 
 // --------------------------------------------------------------------------
@@ -517,5 +578,9 @@ window.digitalTwin = {
   },
 };
 
+elements.leftToggle.addEventListener("click", () =>
+  setLeftCollapsed(!document.body.classList.contains("left-collapsed"))
+);
 wireUpload();
+wireChat();
 loadEndpoints();
