@@ -8,6 +8,7 @@
  */
 
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+import svgPanZoom from "https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/+esm";
 import markdownit from "https://cdn.jsdelivr.net/npm/markdown-it@14/+esm";
 import hljs from "https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core/+esm";
 import javaGrammar from "https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/java/+esm";
@@ -54,13 +55,59 @@ markdown.renderer.rules.fence = (tokens, index, options) => {
   return `<pre${tag}><code class="hljs">${body}</code></pre>\n`;
 };
 
+/**
+ * Diagram palette: four roles, applied systematically.
+ *
+ * Blue reads as "a call going out", teal as "a value coming back", violet
+ * marks service-layer participants and slate the caller outside the system.
+ * Per-participant borders are keyed off Mermaid's `name` attribute in
+ * styles.css - themeVariables are global and cannot vary per actor.
+ */
+const DIAGRAM = {
+  call: "#2563eb",
+  reply: "#0f766e",
+  ink: "#17222b",
+  border: "#d7dae0",
+  lifeline: "#c9ced6",
+  surface: "#ffffff",
+  wash: "#eef2ff",
+  washBorder: "#c7d0fe",
+  callText: "#1e3a8a",
+};
+
 mermaid.initialize({
   startOnLoad: false,
-  theme: "neutral",
+  // "base" is the theme intended to be driven by themeVariables; "neutral"
+  // hard-codes much of what we want to set.
+  theme: "base",
   // The diagram is generated from our own manifest, not user input, and
   // "loose" keeps the rendered SVG inspectable for click binding.
   securityLevel: "loose",
-  sequence: { useMaxWidth: false, actorMargin: 60 },
+  fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
+  sequence: { useMaxWidth: false, actorMargin: 64, mirrorActors: false },
+  themeVariables: {
+    fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
+    fontSize: "13px",
+    primaryColor: DIAGRAM.surface,
+    primaryBorderColor: DIAGRAM.border,
+    primaryTextColor: DIAGRAM.ink,
+    textColor: DIAGRAM.ink,
+    lineColor: DIAGRAM.call,
+    actorBkg: DIAGRAM.surface,
+    actorBorder: DIAGRAM.border,
+    actorTextColor: DIAGRAM.ink,
+    actorLineColor: DIAGRAM.lifeline,
+    signalColor: DIAGRAM.call,
+    signalTextColor: DIAGRAM.callText,
+    labelBoxBkgColor: DIAGRAM.wash,
+    labelBoxBorderColor: DIAGRAM.washBorder,
+    labelTextColor: DIAGRAM.callText,
+    noteBkgColor: DIAGRAM.wash,
+    noteBorderColor: DIAGRAM.washBorder,
+    noteTextColor: DIAGRAM.callText,
+    activationBkgColor: DIAGRAM.wash,
+    activationBorderColor: DIAGRAM.washBorder,
+  },
 });
 
 const elements = {
@@ -299,6 +346,7 @@ async function selectEndpoint(entry, button) {
 }
 
 function showLoading(label) {
+  teardownViewer();
   const wrap = document.createElement("div");
 
   const title = document.createElement("h2");
@@ -314,6 +362,7 @@ function showLoading(label) {
 }
 
 function showError(heading, message) {
+  teardownViewer();
   const box = document.createElement("div");
   box.className = "error";
 
@@ -328,6 +377,7 @@ function showError(heading, message) {
 }
 
 async function showTrace(trace) {
+  teardownViewer();
   const wrap = document.createElement("div");
 
   const title = document.createElement("h2");
@@ -352,12 +402,194 @@ async function showTrace(trace) {
     diagram.innerHTML = svg;
     bindFunctions?.(diagram);
     bindDiagramClicks(diagram, trace.trace ?? []);
+    setupViewer(diagram);
   } catch (error) {
     // Valid JSON from the model does not guarantee renderable Mermaid, so a
     // render failure is reported next to the narrative rather than swallowed.
     diagram.replaceChildren();
     diagram.append(hint(`Diagram could not be rendered: ${error.message}`));
   }
+}
+
+// --------------------------------------------------------------------------
+// Resizable inspector
+// --------------------------------------------------------------------------
+
+const CHAT_MIN_WIDTH = 280;
+const CHAT_MAX_WIDTH = 600;
+
+/** Chosen inspector width, held for the session. */
+let chatWidth = 396;
+
+/** Largest width allowed right now - never more than half the viewport. */
+function chatWidthCeiling() {
+  return Math.max(CHAT_MIN_WIDTH, Math.min(CHAT_MAX_WIDTH, Math.round(window.innerWidth * 0.5)));
+}
+
+/**
+ * Set the inspector width.
+ *
+ * Written to the root element rather than to a class: `body:not(.chat-open)`
+ * still forces the width to zero when the panel is closed, so this value only
+ * takes effect while it is open.
+ */
+function applyChatWidth(width) {
+  chatWidth = Math.round(Math.min(Math.max(width, CHAT_MIN_WIDTH), chatWidthCeiling()));
+  document.documentElement.style.setProperty("--chat-width", `${chatWidth}px`);
+}
+
+/** Insert the drag handle and wire pointer and keyboard resizing. */
+function wireResizer() {
+  const handle = document.createElement("div");
+  handle.className = "panel-resizer";
+  handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-orientation", "vertical");
+  handle.setAttribute("aria-label", "Resize the question panel");
+  handle.tabIndex = 0;
+  document.querySelector(".layout").append(handle);
+
+  let dragging = false;
+
+  handle.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing");
+    event.preventDefault();
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    applyChatWidth(window.innerWidth - event.clientX);
+  });
+
+  const stop = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    handle.releasePointerCapture(event.pointerId);
+    document.body.classList.remove("resizing");
+  };
+  handle.addEventListener("pointerup", stop);
+  handle.addEventListener("pointercancel", stop);
+
+  // Keyboard equivalent, so the divider is not mouse-only.
+  handle.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 48 : 16;
+    if (event.key === "ArrowLeft") applyChatWidth(chatWidth + step);
+    else if (event.key === "ArrowRight") applyChatWidth(chatWidth - step);
+    else return;
+    event.preventDefault();
+  });
+
+  // A narrower window can invalidate the chosen width.
+  window.addEventListener("resize", () => applyChatWidth(chatWidth));
+  applyChatWidth(chatWidth);
+}
+
+// --------------------------------------------------------------------------
+// Diagram viewport: fit, zoom, pan
+// --------------------------------------------------------------------------
+
+let panZoom = null;
+let diagramObserver = null;
+
+/** True once the user has zoomed or panned, so a resize stops re-fitting. */
+let userAdjustedView = false;
+
+/** Guards the callbacks while we drive the viewer ourselves. */
+let adjustingProgrammatically = false;
+
+function teardownViewer() {
+  diagramObserver?.disconnect();
+  diagramObserver = null;
+  try {
+    panZoom?.destroy();
+  } catch {
+    // The SVG may already be gone; nothing to release.
+  }
+  panZoom = null;
+  userAdjustedView = false;
+}
+
+/** Scale the whole diagram back into view and clear the manual-zoom flag. */
+function fitDiagram() {
+  if (!panZoom) return;
+  adjustingProgrammatically = true;
+  panZoom.resize();
+  panZoom.fit();
+  panZoom.center();
+  adjustingProgrammatically = false;
+  userAdjustedView = false;
+}
+
+/**
+ * Turn the rendered Mermaid SVG into a fixed-size, fit-to-view viewport.
+ *
+ * The container never scrolls: the SVG is stretched to fill it and
+ * svg-pan-zoom scales the contents down until the whole diagram is visible.
+ */
+function setupViewer(diagram) {
+  const svg = diagram.querySelector("svg");
+  if (!svg) return;
+
+  // svg-pan-zoom needs the element to fill its container; Mermaid emits a
+  // fixed pixel size and its own max-width.
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", "100%");
+  svg.style.maxWidth = "none";
+
+  panZoom = svgPanZoom(svg, {
+    zoomEnabled: true,
+    panEnabled: true,
+    controlIconsEnabled: false,
+    dblClickZoomEnabled: false,
+    fit: true,
+    center: true,
+    contain: true,
+    minZoom: 0.2,
+    maxZoom: 8,
+    zoomScaleSensitivity: 0.25,
+    onZoom: () => {
+      if (!adjustingProgrammatically) userAdjustedView = true;
+    },
+    onPan: () => {
+      if (!adjustingProgrammatically) userAdjustedView = true;
+    },
+  });
+
+  diagram.append(buildZoomControls());
+
+  // Re-fit whenever the container changes size - which is what happens while
+  // the inspector is being dragged. A view the user zoomed themselves is
+  // resized but not re-fitted, so dragging the panel does not undo their zoom.
+  diagramObserver = new ResizeObserver(() => {
+    if (!panZoom) return;
+    if (userAdjustedView) panZoom.resize();
+    else fitDiagram();
+  });
+  diagramObserver.observe(diagram);
+}
+
+function buildZoomControls() {
+  const bar = document.createElement("div");
+  bar.className = "diagram-controls";
+
+  const control = (label, title, action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "diagram-control";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.textContent = label;
+    button.addEventListener("click", action);
+    return button;
+  };
+
+  bar.append(
+    control("−", "Zoom out", () => panZoom?.zoomOut()),
+    control("+", "Zoom in", () => panZoom?.zoomIn()),
+    control("⤢", "Fit to view", () => fitDiagram())
+  );
+  return bar;
 }
 
 // --------------------------------------------------------------------------
@@ -583,4 +815,5 @@ elements.leftToggle.addEventListener("click", () =>
 );
 wireUpload();
 wireChat();
+wireResizer();
 loadEndpoints();

@@ -199,11 +199,59 @@ body {
 /* ---------------------------------------------------------------- layout */
 
 .layout {
+  position: relative;
   display: grid;
   grid-template-columns: var(--left-width) minmax(0, 1fr) var(--chat-width);
   flex: 1;
   min-height: 0;
   transition: grid-template-columns 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Drag handle, inserted by app.js and floated over the column boundary so the
+   grid definition stays a clean three columns. */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--chat-width);
+  z-index: 5;
+  width: 9px;
+  margin-right: -4px;
+  cursor: col-resize;
+  background: none;
+}
+
+.panel-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: var(--rule);
+}
+
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+body.resizing .panel-resizer::after {
+  width: 2px;
+  left: 3.5px;
+  background: var(--accent);
+}
+
+body:not(.chat-open) .panel-resizer {
+  display: none;
+}
+
+/* While dragging, keep the resize cursor and stop the drag selecting text. */
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* The grid must not animate while it is being dragged. */
+body.resizing .layout {
+  transition: none;
 }
 
 .panel {
@@ -217,9 +265,21 @@ body {
   border-right: 1px solid var(--rule);
 }
 
+/* Column, not scroller: the diagram takes whatever height is left and the
+   page itself never scrolls. */
 .panel-center {
-  padding: 28px 32px 56px;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 32px 32px;
   background: var(--surface);
+  overflow: hidden;
+}
+
+#trace-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel-head {
@@ -366,8 +426,13 @@ body.left-collapsed .collapse-toggle {
 
 /* ---------------------------------------------------- centre panel: trace */
 
-#trace-panel > div {
-  max-width: 980px;
+/* The generated wrapper. `:not(.error)` because showError() puts its own div
+   here, and that one should size to its content rather than fill the column. */
+#trace-panel > div:not(.error) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .trace-title {
@@ -388,15 +453,60 @@ body.left-collapsed .collapse-toggle {
 }
 
 /* The canvas: dotted grid on light grey, with the diagram floating on it. */
+/* Fixed viewport, never a scroller: it fills the remaining column height and
+   svg-pan-zoom scales the diagram to fit inside it. */
 .diagram {
-  padding: 32px 28px;
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  padding: 0;
   border: 1px solid var(--rule);
   border-radius: var(--radius-card);
   background-color: var(--canvas);
   background-image: radial-gradient(circle, #d3d6dc 1px, transparent 1px);
   background-size: 18px 18px;
   background-position: -9px -9px;
-  overflow-x: auto;
+  overflow: hidden;
+}
+
+.diagram svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Zoom controls, built by app.js and parked in the corner of the canvas. */
+.diagram-controls {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.diagram-control {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.diagram-control:hover {
+  background: var(--accent-wash);
+  color: var(--accent);
 }
 
 .hint {
@@ -458,7 +568,8 @@ body.left-collapsed .collapse-toggle {
 
 .diagram svg {
   font-family: var(--sans) !important;
-  overflow: visible;
+  /* Clipped, not spilling: the container is a fixed viewport now. */
+  overflow: hidden;
 }
 
 /* Participant boxes become the floating cards of the canvas. */
@@ -479,33 +590,71 @@ body.left-collapsed .collapse-toggle {
   font-weight: 500 !important;
 }
 
+/* Participant borders by role. Mermaid's themeVariables are global, so the
+   only way to vary per actor is the `name` attribute it writes on each box.
+   Matching on naming convention is what makes Client / Controller / Service /
+   Repository readable at a glance. `i` keeps it case-insensitive. */
+.diagram svg rect.actor[name$="Controller" i] {
+  stroke: #2563eb !important;
+  stroke-width: 1.5px !important;
+}
+
+.diagram svg rect.actor[name$="Service" i],
+.diagram svg rect.actor[name$="ServiceImpl" i] {
+  stroke: #7c3aed !important;
+  stroke-width: 1.5px !important;
+}
+
+.diagram svg rect.actor[name$="Repository" i],
+.diagram svg rect.actor[name$="Repo" i],
+.diagram svg rect.actor[name$="Dao" i] {
+  stroke: #0f766e !important;
+  stroke-width: 1.5px !important;
+}
+
+.diagram svg rect.actor[name="Client" i],
+.diagram svg rect.actor[name="User" i],
+.diagram svg rect.actor[name="Browser" i] {
+  stroke: #64748b !important;
+  stroke-width: 1.5px !important;
+  stroke-dasharray: 4 3 !important;
+}
+
 /* Lifelines: hairline, dotted, receding. */
 .diagram svg line.actor-line {
-  stroke: var(--rule-strong) !important;
+  stroke: #c9ced6 !important;
   stroke-dasharray: 2 5 !important;
   stroke-linecap: round;
 }
 
-/* Connectors in the accent, thin. */
-.diagram svg .messageLine0,
-.diagram svg .messageLine1 {
-  stroke: var(--accent) !important;
-  stroke-width: 1.5px !important;
-  opacity: 0.85;
+/* Calls go out in blue, replies come back in teal. themeVariables has a
+   single `signalColor` for both, so the two classes Mermaid already emits
+   for solid and dashed messages are the only place to separate them. */
+.diagram svg .messageLine0 {
+  stroke: #2563eb !important;
+  stroke-width: 1.6px !important;
 }
 
+.diagram svg .messageLine1 {
+  stroke: #0f766e !important;
+  stroke-width: 1.6px !important;
+  stroke-dasharray: 4 3 !important;
+}
+
+/* Arrowheads share one <marker> definition across both message types, so
+   they cannot be coloured per direction; blue is the majority case. */
 .diagram svg marker path,
 .diagram svg marker circle,
 .diagram svg marker polygon {
-  fill: var(--accent) !important;
-  stroke: var(--accent) !important;
+  fill: #2563eb !important;
+  stroke: #2563eb !important;
 }
 
 /* Connector labels sit directly on the line. A true pill needs a <rect>
    behind the text, which would be new markup; a knocked-out halo in the
-   canvas colour is the closest CSS-only equivalent and keeps them legible. */
+   canvas colour is the closest equivalent and keeps them legible. */
 .diagram svg .messageText {
-  fill: var(--accent) !important;
+  fill: #1e3a8a !important;
   font-size: 11.5px !important;
   font-weight: 500 !important;
   paint-order: stroke;
