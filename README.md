@@ -4,6 +4,12 @@ Codebase Digital Twin & Execution Tracer - upload a Spring Boot repo, pick a
 user-facing action, and see exactly what code runs, in what order, down to the
 database call.
 
+## Demo video
+
+link: https://drive.google.com/file/d/16B46W0-rCJXkkBAkT248YAN8CQJck6ve/view
+
+
+https://github.com/user-attachments/assets/b8e26fda-5280-4fe3-a9a6-15b22ea4fb47
 ## Layout
 
 ```
